@@ -58,20 +58,20 @@ The building is a rectangular warehouse, about 28 × 16 tiles, and starts out de
 
 ```
 ############################
-#~DD..F#..W.........SSS...~#
-#.h....#..................L#
-#......#....,.............L#
-#......#..................L#
+#~DD..F#..W.......SSS..LLL~#
+#.h....#...................#
+#......#....,..............#
+#......#...................#
 ###..###...................#
 #................TT........#
 #................TT........#
-#................TT........#
-#....,.....................#
+#................TT........L
+#....,.....................L
 #..........................#
 #....................,.....#
 #...........RRRR...........#
 #..........................#
-#..........................#
+#............kk............#
 #############==#############
 ```
 
@@ -87,7 +87,8 @@ The building is a rectangular warehouse, about 28 × 16 tiles, and starts out de
 | `F` | Filing cabinet |
 | `W` | Water cooler |
 | `S` | Storage shelf |
-| `L` | Lockers |
+| `L` | Lockers (top wall) / padlocked roll-up door (right wall) |
+| `k` | Doormat; kept clear |
 | `T` | The one cheap treadmill (2×3) |
 | `R` | Check-in desk (centered on the entrance) |
 
@@ -98,6 +99,8 @@ The building is a rectangular warehouse, about 28 × 16 tiles, and starts out de
 **Starting equipment:** one cheap treadmill, and nothing else. No benches, dumbbells, bikes or tires; those are purchases.
 
 **Expansion hook:** a padlocked roll-up door on the right wall leads to the back warehouse, which is the first expansion. A rusty staircase to the mezzanine comes later.
+
+The back wall also has a hand-painted "GYM" bedsheet banner, a boarded-up window and a fuse box. The office has a calendar, and the lighting is dim and patchy, with one light that flickers. Fixing the lights is a planned v0.2 upgrade.
 
 ---
 
@@ -338,7 +341,15 @@ Keeping the rules (`sim/`) separate from the rendering (`scenes/`) makes the gam
 
 ## 15. Roadmap
 
-### v0.1 — "The Empty Warehouse" (core loop)
+### v0.1 — "The Empty Warehouse" (core loop) ✅ built
+
+Notes from building it:
+- **Fonts:** Jersey 10 for UI and numbers, VT323 for reading text. Pixelify Sans was dropped because its digits were ambiguous.
+- **Pausing:** the gym clock pauses while the computer, a placement or Move Mode is open.
+- **Check-in desk:** decorative for now. Customers stop there briefly before working out.
+- **Bike:** the Stationary Bike (unlocks at 2★) is already in, alongside the treadmill.
+- **Tunable numbers:** all balance numbers are in `src/data/balance.ts`.
+
 - Project setup with landscape scaling, deployed to GitHub Pages.
 - Starting warehouse per §5, with simple readable pixel art.
 - Tap-to-move with A*, strict proximity interaction, highlight and context button.
