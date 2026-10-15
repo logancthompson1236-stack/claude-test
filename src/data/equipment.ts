@@ -8,7 +8,7 @@ export type Category =
   | "office"
   | "fixture";
 
-export type Pose = "idle" | "walk" | "run" | "pedal" | "drink";
+export type Pose = "idle" | "walk" | "run" | "pedal" | "drink" | "checkin" | "type";
 
 export interface UseSlot {
   /** Where the user's feet go, in footprint-local tile units (fractional). */
@@ -40,8 +40,6 @@ export interface EquipmentDef {
   slots: UseSlot[];
   /** In-game minutes per use. */
   useMinutes?: [number, number];
-  /** Paid when a workout on this machine is completed. */
-  revenue: number;
   /** Added to a customer's visit satisfaction when they use it. */
   satisfaction: number;
   /** How much it makes the gym attractive to new customers. */
@@ -77,7 +75,6 @@ const defs: EquipmentDef[] = [
       },
     ],
     useMinutes: [20, 40],
-    revenue: 5,
     satisfaction: 0.4,
     appeal: 1,
   },
@@ -102,7 +99,6 @@ const defs: EquipmentDef[] = [
       },
     ],
     useMinutes: [20, 35],
-    revenue: 6,
     satisfaction: 0.7,
     appeal: 1.2,
     unlockRating: 2,
@@ -128,7 +124,6 @@ const defs: EquipmentDef[] = [
       },
     ],
     useMinutes: [3, 5],
-    revenue: 0,
     satisfaction: 0.3,
     appeal: 0.3,
     interact: { kind: "drink", spot: { x: 0, y: 1 }, facing: "up", label: "Grab a drink" },
@@ -145,7 +140,6 @@ const defs: EquipmentDef[] = [
     movable: true,
     layer: "tall",
     slots: [],
-    revenue: 0,
     satisfaction: 0,
     appeal: 0.15,
   },
@@ -161,7 +155,6 @@ const defs: EquipmentDef[] = [
     movable: true,
     layer: "tall",
     slots: [],
-    revenue: 0,
     satisfaction: 0,
     appeal: 0.1,
   },
@@ -177,7 +170,6 @@ const defs: EquipmentDef[] = [
     movable: false,
     layer: "tall",
     slots: [],
-    revenue: 0,
     satisfaction: 0,
     appeal: 0,
     interact: { kind: "computer", spot: { x: 0, y: 1 }, facing: "up", label: "Use Computer" },
@@ -195,7 +187,6 @@ const defs: EquipmentDef[] = [
     walkable: true,
     layer: "low",
     slots: [],
-    revenue: 0,
     satisfaction: 0,
     appeal: 0,
   },
@@ -211,7 +202,6 @@ const defs: EquipmentDef[] = [
     movable: true,
     layer: "tall",
     slots: [],
-    revenue: 0,
     satisfaction: 0,
     appeal: 0,
   },
@@ -227,7 +217,6 @@ const defs: EquipmentDef[] = [
     movable: true,
     layer: "tall",
     slots: [],
-    revenue: 0,
     satisfaction: 0,
     appeal: 0,
   },
@@ -243,7 +232,6 @@ const defs: EquipmentDef[] = [
     movable: true,
     layer: "tall",
     slots: [],
-    revenue: 0,
     satisfaction: 0,
     appeal: 0.2,
   },
@@ -263,7 +251,6 @@ const defs: EquipmentDef[] = [
       { stand: { x: 1.5, y: 1.5 }, access: [{ x: 1, y: 1 }], facing: "up", pose: "idle" },
       { stand: { x: 2.5, y: 1.5 }, access: [{ x: 2, y: 1 }], facing: "up", pose: "idle" },
     ],
-    revenue: 0,
     satisfaction: 0,
     appeal: 0,
   },

@@ -9,6 +9,8 @@ import { Painter, hash } from "./painter";
 export interface ObjectArt {
   painter: Painter;
   extra: number;
+  /** Parts that must be drawn in front of whoever is using the object (e.g. handlebars). */
+  overlay?: Painter;
 }
 
 const OUT = "#2a221c";
@@ -42,7 +44,7 @@ const C = {
   tealLight: "#77a39e",
 };
 
-function finish(p: Painter, shadow?: [number, number, number, number]) {
+function finish(p: Painter, shadow?: [number, number, number, number]): Painter {
   p.outline(OUT);
   if (shadow) p.shadow(...shadow);
   return p;
@@ -54,14 +56,14 @@ function treadmillVertical(frame: number, consoleTop: boolean): ObjectArt {
   const extra = consoleTop ? 14 : 6;
   const p = new Painter(32, 48 + extra);
   const f = extra; // footprint top
-  const phase = frame * 2;
+  const phase = frame;
   if (consoleTop) {
     // Deck
     p.box(3, f + 6, 28, f + 43, C.frame);
     p.box(3, f + 6, 4, f + 43, C.frameLight);
     p.box(27, f + 6, 28, f + 43, C.frameDark);
     p.box(7, f + 8, 24, f + 41, C.belt);
-    for (let y = f + 8 + ((phase + 40) % 5); y <= f + 41; y += 5) p.hline(7, 24, y, C.beltStripe);
+    for (let y = f + 8 + ((phase + 40) % 4); y <= f + 41; y += 4) p.hline(7, 24, y, C.beltStripe);
     p.box(5, f + 41, 26, f + 43, C.frameDark);
     // Motor hood
     p.box(3, f + 1, 28, f + 8, "#59606a");
@@ -99,7 +101,7 @@ function treadmillVertical(frame: number, consoleTop: boolean): ObjectArt {
   p.box(3, f + 2, 4, f + 40, C.frameLight);
   p.box(27, f + 2, 28, f + 40, C.frameDark);
   p.box(7, f + 4, 24, f + 36, C.belt);
-  for (let y = f + 4 + ((40 - phase) % 5); y <= f + 36; y += 5) p.hline(7, 24, y, C.beltStripe);
+  for (let y = f + 4 + ((40 - phase) % 4); y <= f + 36; y += 4) p.hline(7, 24, y, C.beltStripe);
   p.box(5, f + 2, 26, f + 4, C.frameDark);
   p.box(3, f + 36, 28, f + 46, "#59606a");
   p.hline(3, 28, f + 36, "#737b84");
@@ -121,11 +123,11 @@ function treadmillSide(frame: number): ObjectArt {
   const extra = 14;
   const p = new Painter(48, 32 + extra);
   const f = extra;
-  const phase = frame * 2;
+  const phase = frame;
   p.box(1, f + 4, 41, f + 22, C.frame);
   p.hline(1, 41, f + 4, C.frameLight);
   p.box(3, f + 6, 36, f + 19, C.belt);
-  for (let x = 3 + ((40 - phase) % 5); x <= 36; x += 5) p.vline(x, f + 6, f + 19, C.beltStripe);
+  for (let x = 3 + ((40 - phase) % 4); x <= 36; x += 4) p.vline(x, f + 6, f + 19, C.beltStripe);
   p.box(1, f + 20, 41, f + 24, C.frameDark);
   p.box(36, f + 3, 45, f + 23, "#59606a");
   p.vline(36, f + 3, f + 23, "#737b84");
@@ -145,62 +147,100 @@ function treadmillSide(frame: number): ObjectArt {
 }
 
 // ---------------------------------------------------------------- bike
+// Crank positions for the 4 pedalling frames, matched to the rider's leg frames
+// (frame 0: near foot up, frame 2: near foot down).
+const CRANK: [number, number][] = [
+  [0, -2],
+  [2, 0],
+  [0, 2],
+  [-2, 0],
+];
 
-function bikeVertical(frame: number, facingUp: boolean): ObjectArt {
-  const extra = facingUp ? 10 : 8;
+function bikeUp(frame: number): ObjectArt {
+  // Rider faces up (away from us). Flywheel at the front (top), seat at the back (bottom).
+  const extra = 10;
   const p = new Painter(16, 32 + extra);
   const f = extra;
-  const pedal = frame === 0 ? 0 : 2;
-  if (facingUp) {
-    p.box(1, f + 27, 14, f + 29, C.metalDark);
-    p.box(1, f + 4, 14, f + 6, C.metalDark);
-    p.box(7, f + 6, 8, f + 27, C.red);
-    p.box(4, f + 2, 11, f + 12, "#2f3338");
-    p.box(5, f + 4, 10, f + 4, C.red);
-    p.box(7, 2, 8, f + 4, C.metalDark);
-    p.box(2, 2, 13, 4, C.black);
-    p.box(5, 0, 10, 2, C.console);
-    p.box(6, 0, 9, 1, C.lcd);
-    p.box(5, f + 16, 10, f + 20, C.black);
-    p.hline(6, 9, f + 16, "#4a4b50");
-    p.box(3, f + 11 + pedal, 4, f + 12 + pedal, C.metal);
-    p.box(11, f + 13 - pedal, 12, f + 14 - pedal, C.metal);
-    return { painter: finish(p, [8, f + 29, 7, 2]), extra };
-  }
-  // Facing down: handlebars at the bottom.
-  p.box(1, f + 2, 14, f + 4, C.metalDark);
-  p.box(1, f + 25, 14, f + 27, C.metalDark);
-  p.box(7, f + 4, 8, f + 25, C.red);
-  p.box(5, f + 6, 10, f + 10, C.black);
-  p.box(4, f + 18, 11, f + 27, "#2f3338");
-  p.box(5, f + 24, 10, f + 24, C.red);
-  p.box(7, f + 12, 8, f + 20, C.metalDark);
-  p.box(2, f + 11, 13, f + 13, C.black);
-  p.box(3, f + 15 + pedal, 4, f + 16 + pedal, C.metal);
-  p.box(11, f + 17 - pedal, 12, f + 18 - pedal, C.metal);
+  // stabiliser feet
+  p.box(1, f + 2, 14, f + 3, C.metalDark);
+  p.box(1, f + 27, 14, f + 28, C.metalDark);
+  // flywheel housing
+  p.box(4, 0, 11, f + 4, "#2f3338");
+  p.box(5, 1, 10, 2, "#454b52");
+  p.box(4, f, 11, f, C.red);
+  // frame spine
+  p.box(7, f + 4, 8, f + 26, C.red);
+  p.vline(7, f + 4, f + 26, "#d9685a");
+  // handlebars stick out either side of the rider's head
+  p.box(1, f + 4, 14, f + 5, C.black);
+  p.box(1, f + 4, 2, f + 6, "#4a4b50");
+  p.box(13, f + 4, 14, f + 6, "#4a4b50");
+  // pedals
+  const [, dy] = CRANK[frame];
+  p.box(3, f + 17 + dy, 5, f + 18 + dy, C.metal);
+  p.box(10, f + 17 - dy, 12, f + 18 - dy, C.metal);
+  // seat
+  p.box(5, f + 17, 10, f + 21, C.black);
+  p.hline(6, 9, f + 17, "#4a4b50");
   return { painter: finish(p, [8, f + 28, 7, 2]), extra };
 }
 
+function bikeDown(frame: number): ObjectArt {
+  // Rider faces down (towards us). Seat at the back (top), handlebars and flywheel in front (bottom).
+  const extra = 6;
+  const p = new Painter(16, 32 + extra);
+  const ov = new Painter(16, 32 + extra);
+  const f = extra;
+  p.box(1, f + 1, 14, f + 2, C.metalDark);
+  p.box(1, f + 28, 14, f + 29, C.metalDark);
+  p.box(7, f + 2, 8, f + 22, C.red);
+  p.box(5, f + 2, 10, f + 6, C.black);
+  p.hline(6, 9, f + 2, "#4a4b50");
+  const [, dy] = CRANK[frame];
+  p.box(3, f + 12 - dy, 5, f + 13 - dy, C.metal);
+  p.box(10, f + 12 + dy, 12, f + 13 + dy, C.metal);
+  // flywheel in front, on the floor
+  p.box(4, f + 20, 11, f + 28, "#2f3338");
+  p.box(4, f + 27, 11, f + 27, C.red);
+  // Handlebars and console are in front of the rider.
+  ov.box(7, f + 9, 8, f + 19, C.metalDark);
+  ov.box(1, f + 8, 14, f + 9, C.black);
+  ov.box(1, f + 8, 2, f + 10, "#4a4b50");
+  ov.box(13, f + 8, 14, f + 10, "#4a4b50");
+  ov.box(5, f + 10, 10, f + 13, C.console);
+  ov.box(6, f + 11, 9, f + 12, C.lcd);
+  return { painter: finish(p, [8, f + 29, 7, 2]), extra, overlay: finish(ov) };
+}
+
 function bikeSide(frame: number): ObjectArt {
-  const extra = 18;
+  // Rider faces right. Seat on the left, handlebars mid, flywheel at the front (right).
+  const extra = 10;
   const p = new Painter(32, 16 + extra);
   const f = extra;
-  p.box(2, f + 11, 29, f + 13, C.metalDark);
-  p.ellipse(23.5, f + 5.5, 6, 6, C.red);
-  p.ellipse(23.5, f + 5.5, 4, 4, "#2f3338");
-  p.px(23, f + 5, C.metal);
-  p.line(9, f + 2, 22, f + 7, C.red);
-  p.line(9, f + 3, 22, f + 8, C.red);
-  p.box(8, f - 4, 10, f + 11, C.red);
-  p.box(5, f - 6, 13, f - 4, C.black);
-  p.hline(6, 12, f - 6, "#4a4b50");
-  p.box(23, f - 12, 25, f + 1, C.metalDark);
-  p.box(21, f - 14, 29, f - 12, C.black);
-  p.box(24, f - 17, 28, f - 15, C.console);
-  p.box(25, f - 17, 27, f - 16, C.lcd);
-  const a = frame === 0 ? -2 : 2;
-  p.line(16, f + 5, 16 + a, f + 5 + a, C.metal);
-  p.box(15, f + 4, 17, f + 6, C.metalDark);
+  p.box(2, f + 12, 29, f + 13, C.metalDark);
+  // flywheel
+  p.ellipse(23.5, f + 6.5, 6, 6, C.red);
+  p.ellipse(23.5, f + 6.5, 4, 4, "#2f3338");
+  p.px(23, f + 6, C.metal);
+  // frame: seat post, down tube to the crank, tube to the handlebar post
+  p.box(8, f + 2, 9, f + 12, C.red);
+  p.line(9, f + 9, 16, f + 7, C.red);
+  p.line(9, f + 10, 16, f + 8, C.red);
+  p.line(16, f - 3, 18, f + 10, C.red);
+  p.line(17, f - 3, 19, f + 10, C.red);
+  p.line(18, f + 6, 22, f + 6, C.red);
+  // seat
+  p.box(5, f, 12, f + 1, C.black);
+  p.hline(6, 11, f, "#4a4b50");
+  // handlebars and console
+  p.box(13, f - 5, 18, f - 4, C.black);
+  p.box(16, f - 9, 20, f - 6, C.console);
+  p.box(17, f - 8, 19, f - 7, C.lcd);
+  // crank + pedal
+  const [cx, cy] = CRANK[frame];
+  p.box(12, f + 6, 14, f + 8, C.metalDark);
+  p.line(13, f + 7, 13 + cx, f + 7 + cy, C.metal);
+  p.box(12 + cx, f + 7 + cy, 14 + cx, f + 7 + cy, C.metal);
   return { painter: finish(p, [16, f + 13, 15, 2]), extra };
 }
 
@@ -409,7 +449,7 @@ function checkinDesk(): ObjectArt {
 
 // ---------------------------------------------------------------- registry
 
-export const OBJECT_FRAMES: Record<string, number> = { treadmill_used: 2, bike_basic: 2 };
+export const OBJECT_FRAMES: Record<string, number> = { treadmill_used: 4, bike_basic: 4 };
 
 export function drawObject(defId: string, rot: Rot, frame: number): ObjectArt {
   switch (defId) {
@@ -418,8 +458,8 @@ export function drawObject(defId: string, rot: Rot, frame: number): ObjectArt {
       if (rot === 2) return treadmillVertical(frame, false);
       return mirrorIf(treadmillSide(frame), rot === 3);
     case "bike_basic":
-      if (rot === 0) return bikeVertical(frame, true);
-      if (rot === 2) return bikeVertical(frame, false);
+      if (rot === 0) return bikeUp(frame);
+      if (rot === 2) return bikeDown(frame);
       return mirrorIf(bikeSide(frame), rot === 3);
     case "water_cooler":
       return waterCooler();
@@ -444,5 +484,5 @@ export function drawObject(defId: string, rot: Rot, frame: number): ObjectArt {
 }
 
 function mirrorIf(a: ObjectArt, m: boolean): ObjectArt {
-  return m ? { painter: a.painter.mirrored(), extra: a.extra } : a;
+  return m ? { painter: a.painter.mirrored(), extra: a.extra, overlay: a.overlay?.mirrored() } : a;
 }

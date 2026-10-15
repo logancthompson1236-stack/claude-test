@@ -1,7 +1,7 @@
 import Phaser from "phaser";
-import { CHAR_H } from "../art/characters";
 import { FLICKER_LAMP, OUTSIDE, TILE, WALL_TOP } from "../art/environment";
-import { buildTextures, charKey, objKey, objectExtra } from "../art/textures";
+import { CH, FEET_Y } from "../art/people";
+import { buildTextures, charKey, objKey, objOverlayKey, objectExtra, objectOverlay } from "../art/textures";
 import type { Controller } from "../controller";
 import { getDef } from "../data/equipment";
 import { LAYOUT } from "../data/layout";
@@ -9,18 +9,25 @@ import { rotatedSize, worldSlot, worldInteractSpot } from "../sim/geometry";
 import type { Vec } from "../sim/types";
 import type { Actor, PlacedObject, World } from "../sim/world";
 import type { UI } from "../ui/ui";
+import { Animator, type AnimFrame } from "./animator";
 
 const MAP_W = LAYOUT[0].length * TILE;
 const MAP_H = LAYOUT.length * TILE;
 const VIEW_TOP = -WALL_TOP;
 const VIEW_BOTTOM = MAP_H + OUTSIDE;
-const FEET = 22; // feet row inside a 24px character frame
 
 type Drag = "none" | "ghost" | "pan";
 
 export class GameScene extends Phaser.Scene {
   private objSprites = new Map<number, Phaser.GameObjects.Image>();
+  /** Front layers (handlebars etc.) drawn over whoever is using the object. */
+  private objFronts = new Map<number, Phaser.GameObjects.Image>();
   private actorSprites = new Map<number, Phaser.GameObjects.Sprite>();
+  private animator = new Animator();
+  /** Latest animation frame per actor, used to keep equipment moving in step with its user. */
+  private actorAnim = new Map<number, AnimFrame>();
+  /** Running belt position per treadmill. */
+  private beltPhase = new Map<number, number>();
   private ghost!: Phaser.GameObjects.Image;
   private overlay!: Phaser.GameObjects.Graphics;
   private marker!: Phaser.GameObjects.Image;
@@ -30,7 +37,11 @@ export class GameScene extends Phaser.Scene {
   private dpr = 1;
   private zoomLevels: number[] = [1];
   private zoomIdx = 0;
+  /** Centre of the *unobstructed* part of the view (between the HUD columns), in world pixels. */
   private center: Vec = { x: MAP_W / 2, y: (VIEW_TOP + VIEW_BOTTOM) / 2 };
+  /** Screen space covered by HUD columns on each side, in device pixels. */
+  private insets = { l: 0, r: 0 };
+  private nextInsetCheck = 0;
   private follow = true;
 
   private down: { x: number; y: number; t: number } | null = null;
@@ -81,9 +92,14 @@ export class GameScene extends Phaser.Scene {
 
   // ------------------------------------------------------------------ camera
 
-  /** Pick zoom levels: by default the whole gym fits on screen, but tiles never get too small to tap. */
+  /**
+   * Pick zoom levels: by default the whole gym fits between the HUD columns, but tiles never get too
+   * small to tap. When it can't fit, the camera scrolls instead and nothing hides under the HUD.
+   */
   layoutCamera() {
-    const vw = this.scale.width;
+    const ins = this.ui.insets();
+    this.insets = { l: ins.left * this.dpr, r: ins.right * this.dpr };
+    const vw = this.scale.width - this.insets.l - this.insets.r;
     const vh = this.scale.height;
     const fit = Math.min(vw / (MAP_W + 8), vh / (VIEW_BOTTOM - VIEW_TOP + 4));
     const minTouch = (20 * this.dpr) / TILE;
@@ -104,7 +120,9 @@ export class GameScene extends Phaser.Scene {
 
   private updateCamera(dt: number) {
     const cam = this.cameras.main;
-    const halfW = cam.width / cam.zoom / 2;
+    const iL = this.insets.l / cam.zoom;
+    const iR = this.insets.r / cam.zoom;
+    const halfW = (cam.width / cam.zoom - iL - iR) / 2;
     const halfH = cam.height / cam.zoom / 2;
     if (this.follow && this.ctrl.mode === "play") {
       const p = this.world.player.pos;
@@ -116,7 +134,9 @@ export class GameScene extends Phaser.Scene {
       hi - lo <= half * 2 ? (lo + hi) / 2 : Phaser.Math.Clamp(c, lo + half, hi - half);
     this.center.x = clampAxis(this.center.x, -8, MAP_W + 8, halfW);
     this.center.y = clampAxis(this.center.y, VIEW_TOP - 4, VIEW_BOTTOM + 4, halfH);
-    cam.centerOn(Math.round(this.center.x * cam.zoom) / cam.zoom, Math.round(this.center.y * cam.zoom) / cam.zoom);
+    // The safe area's centre sits (iL - iR) / 2 to the right of the camera's centre.
+    const cx = this.center.x - (iL - iR) / 2;
+    cam.centerOn(Math.round(cx * cam.zoom) / cam.zoom, Math.round(this.center.y * cam.zoom) / cam.zoom);
   }
 
   worldToCss(wx: number, wy: number): Vec {
@@ -125,10 +145,9 @@ export class GameScene extends Phaser.Scene {
     return { x: ((wx - v.x) * cam.zoom) / this.dpr, y: ((wy - v.y) * cam.zoom) / this.dpr };
   }
 
-  /** Centre of the current view in tiles (where newly bought items appear). */
+  /** Centre of the unobstructed view in tiles (where newly bought items appear). */
   viewCenterTile(): Vec {
-    const v = this.cameras.main.worldView;
-    return { x: (v.x + v.width / 2) / TILE, y: (v.y + v.height / 2) / TILE };
+    return { x: this.center.x / TILE, y: this.center.y / TILE };
   }
 
   // ------------------------------------------------------------------ input
@@ -322,9 +341,15 @@ export class GameScene extends Phaser.Scene {
 
   update(time: number, deltaMs: number) {
     const dt = deltaMs / 1000;
+    if (time > this.nextInsetCheck) {
+      // HUD widths change with fonts loading, cash digits and modes; keep the framing in step.
+      this.nextInsetCheck = time + 500;
+      const ins = this.ui.insets();
+      if (Math.abs(ins.left * this.dpr - this.insets.l) > 2 || Math.abs(ins.right * this.dpr - this.insets.r) > 2) this.layoutCamera();
+    }
     this.world.tick(dt);
-    this.syncObjects(time);
-    this.syncActors();
+    this.syncActors(dt);
+    this.syncObjects(dt);
     this.syncOverlay(time);
     this.syncMarker(time);
     this.flicker(time);
@@ -332,18 +357,20 @@ export class GameScene extends Phaser.Scene {
     this.ui.frame();
   }
 
-  private syncObjects(time: number) {
+  private syncObjects(dt: number) {
     for (const [id, img] of this.objSprites) {
       if (!this.world.objects.has(id)) {
         img.destroy();
         this.objSprites.delete(id);
+        this.objFronts.get(id)?.destroy();
+        this.objFronts.delete(id);
+        this.beltPhase.delete(id);
       }
     }
     for (const o of this.world.objects.values()) {
       const def = getDef(o.defId);
       let img = this.objSprites.get(o.id);
-      const running = def.slots.length > 0 && o.slots.some((s) => s.state === "inuse") && def.category === "cardio";
-      const frame = running ? Math.floor(time / (o.defId.startsWith("bike") ? 200 : 90)) % 2 : 0;
+      const frame = this.objectFrame(o, dt);
       const key = objKey(o.defId, o.rot, frame);
       if (!img) {
         img = this.add.image(0, 0, key).setOrigin(0, 0);
@@ -351,28 +378,60 @@ export class GameScene extends Phaser.Scene {
       } else if (img.texture.key !== key) img.setTexture(key);
       const extra = objectExtra.get(`${o.defId}:${o.rot}`) ?? 0;
       const { h } = rotatedSize(def, o.rot);
+      const visible = o.id !== this.world.liftedId;
       img.setPosition(o.x * TILE, o.y * TILE - extra);
       img.setDepth(def.layer === "low" ? o.y * TILE + 2 : (o.y + h) * TILE - 1);
-      img.setVisible(o.id !== this.world.liftedId);
+      img.setVisible(visible);
+
+      let front = this.objFronts.get(o.id);
+      if (objectOverlay.has(`${o.defId}:${o.rot}`)) {
+        const fkey = objOverlayKey(o.defId, o.rot, frame);
+        if (!front) {
+          front = this.add.image(0, 0, fkey).setOrigin(0, 0);
+          this.objFronts.set(o.id, front);
+        } else if (front.texture.key !== fkey) front.setTexture(fkey);
+        front.setPosition(o.x * TILE, o.y * TILE - extra).setDepth((o.y + h) * TILE).setVisible(visible);
+      } else if (front) {
+        front.destroy();
+        this.objFronts.delete(o.id);
+      }
     }
   }
 
-  private syncActors() {
+  /** Treadmill belts and bike pedals move in step with the person using them. */
+  private objectFrame(o: PlacedObject, dt: number): number {
+    const slot = o.slots[0];
+    if (!slot || slot.state !== "inuse") return 0;
+    const anim = this.actorAnim.get(slot.by);
+    if (!anim) return 0;
+    if (anim.anim === "pedal") return anim.index;
+    if (anim.anim === "run") {
+      const phase = (this.beltPhase.get(o.id) ?? 0) + dt * 14 * anim.cadence;
+      this.beltPhase.set(o.id, phase);
+      return Math.floor(phase) % 4;
+    }
+    return 0;
+  }
+
+  private syncActors(dt: number) {
     const live = new Set<number>([this.world.player.id, ...this.world.customers.map((c) => c.id)]);
     for (const [id, s] of this.actorSprites) {
       if (!live.has(id)) {
         s.destroy();
         this.actorSprites.delete(id);
+        this.animator.forget(id);
+        this.actorAnim.delete(id);
       }
     }
     for (const a of [this.world.player, ...this.world.customers]) {
       let s = this.actorSprites.get(a.id);
-      const frame = `${a.facing}-${pickFrame(a)}`;
+      const anim = this.animator.update(a, dt);
+      this.actorAnim.set(a.id, anim);
       if (!s) {
-        s = this.add.sprite(0, 0, charKey(a.look), frame).setOrigin(0.5, FEET / CHAR_H);
+        s = this.add.sprite(0, 0, charKey(a.look), anim.frame).setOrigin(0.5, (FEET_Y + 0.5) / CH);
         this.actorSprites.set(a.id, s);
-      } else s.setFrame(frame);
-      s.setPosition(Math.round(a.pos.x * TILE), Math.round(a.pos.y * TILE));
+      } else s.setFrame(anim.frame);
+      s.setPosition(Math.round(a.pos.x * TILE), Math.round(a.pos.y * TILE) + anim.dy);
       s.setDepth(a.pos.y * TILE + (a.kind === "player" ? 0.6 : 0.5));
       const outside = a.pos.y - (LAYOUT.length - 0.5);
       s.setAlpha(outside > 0 ? Phaser.Math.Clamp(1 - outside * 1.1, 0, 1) : 1);
@@ -462,23 +521,5 @@ export class GameScene extends Phaser.Scene {
     if (time < this.flickerUntil) {
       this.glow.setAlpha(Math.random() < 0.5 ? 0.15 : 0.9);
     } else this.glow.setAlpha(1);
-  }
-}
-
-function pickFrame(a: Actor): string {
-  const t = a.animT;
-  if (a.moving) {
-    const step = Math.floor(t / 0.13) % 4;
-    return step === 0 ? "walk1" : step === 2 ? "walk2" : "idle";
-  }
-  switch (a.pose) {
-    case "run":
-      return Math.floor(t / 0.11) % 2 === 0 ? "run1" : "run2";
-    case "pedal":
-      return Math.floor(t / 0.2) % 2 === 0 ? "sit1" : "sit2";
-    case "drink":
-      return "drink";
-    default:
-      return "idle";
   }
 }

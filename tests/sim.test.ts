@@ -98,7 +98,7 @@ describe("placement", () => {
 describe("customers", () => {
   it("runs a full first day: people visit, work out, pay, and nobody double-books a machine", () => {
     const w = new World({ seed: 42 });
-    let summary: { revenue: number; visitors: number; workouts: number } | null = null;
+    let summary: { revenue: number; visitors: number; workouts: number; dayPasses: number; newMembers: number } | null = null;
     w.on((e) => {
       if (e.type === "dayEnd") summary = e.summary;
     });
@@ -112,7 +112,9 @@ describe("customers", () => {
     expect(s.visitors).toBeGreaterThan(4);
     expect(s.visitors).toBeLessThan(25);
     expect(s.workouts).toBeGreaterThan(2);
-    expect(s.revenue).toBe(s.workouts * 5);
+    // Everyone pays at the desk: a day pass, or a membership.
+    expect(s.revenue).toBe(s.dayPasses * 5 + s.newMembers * 25);
+    expect(s.dayPasses + s.newMembers).toBeLessThanOrEqual(s.visitors);
   });
 
   it("keeps first-week income in the planned range", () => {
@@ -139,12 +141,50 @@ describe("customers", () => {
   });
 });
 
+describe("regulars and memberships", () => {
+  it("happy regulars come back and some buy memberships over a week", () => {
+    const w = new World({ seed: 7 });
+    let members = 0;
+    let memberVisits = 0;
+    w.on((e) => {
+      if (e.type === "dayEnd") {
+        members += e.summary.newMembers;
+        memberVisits += e.summary.memberVisits;
+      }
+    });
+    for (let d = 0; d < 7; d++) {
+      let ended = false;
+      const off = w.on((e) => {
+        if (e.type === "dayEnd") ended = true;
+      });
+      for (let i = 0; i < 20000 && !ended; i++) w.tick(0.1);
+      off();
+      w.nextDay();
+    }
+    expect([...w.people.values()].some((p) => p.visits >= 2)).toBe(true);
+    expect(members).toBeGreaterThan(0);
+    expect(memberVisits).toBeGreaterThan(0);
+  });
+
+  it("a member checks in without paying again", () => {
+    const w = new World({ seed: 3 });
+    const p = w.pickVisitor(() => ({ name: "Dana", look: "c1", visits: 5, happiness: 4.5, memberUntil: 0, lastDay: 0 }));
+    p.memberUntil = w.day + 3;
+    const cash = w.cash;
+    expect(w.checkIn(p, { x: 0, y: 0 })).toBe("member");
+    expect(w.cash).toBe(cash);
+  });
+});
+
 describe("save", () => {
   it("round-trips the layout and money", () => {
     const w = new World({ seed: 1 });
     w.cash = 999;
     w.addObject("potted_plant", 9, 9, 0);
+    w.pickVisitor(() => ({ name: "Dana", look: "c1", visits: 3, happiness: 4, memberUntil: 5, lastDay: 1 }));
     const copy = new World({ seed: 2, save: JSON.parse(JSON.stringify(w.toSave())) });
+    expect(copy.people.size).toBe(1);
+    expect([...copy.people.values()][0].memberUntil).toBe(5);
     expect(copy.cash).toBe(999);
     expect(copy.countOf("potted_plant")).toBe(1);
     expect(copy.objects.size).toBe(w.objects.size);

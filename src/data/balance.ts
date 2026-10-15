@@ -30,6 +30,19 @@ export const BALANCE = {
   patienceMinutes: [20, 40] as [number, number],
   coolerChance: 0.45,
 
+  /** Paid at the front desk by anyone without a membership. */
+  dayPassPrice: 5,
+  /** A week of visits, paid up front at the desk. */
+  membershipPrice: 25,
+  membershipDays: 7,
+  /** A regular who has visited this often and enjoyed it may sign up at the desk. */
+  membershipMinVisits: 2,
+  membershipMinHappiness: 3,
+  membershipChance: 0.45,
+  /** How many past visitors the town remembers, and how likely a visitor is someone returning. */
+  maxRegulars: 80,
+  maxReturningChance: 0.7,
+
   playerSpeed: 4.2, // tiles per real second
   customerSpeed: 2.4, // tiles per real second at 1x
 };

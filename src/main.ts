@@ -69,8 +69,10 @@ world.on((e) => {
           world.player.pos = { x: spot.spot.x + 0.5, y: spot.spot.y + 0.6 };
           world.player.facing = spot.facing;
         }
+        world.player.pose = "type";
         ctrl.openComputer();
       } else if (def.interact?.kind === "drink") {
+        world.setPlayerPose("drink", 2.2);
         ui.bubble(world.player.id, "Ahh. Lukewarm, but wet.");
       }
       break;

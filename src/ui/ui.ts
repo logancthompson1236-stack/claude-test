@@ -34,6 +34,10 @@ interface Bubble {
 export class UI {
   private scene!: GameScene;
   private root: HTMLElement;
+  private hudLeft = el("div", "hud-left");
+  private lastLeftInset = 0;
+  private lastRightInset = 0;
+  private hudRight = el("div", "hud-right");
   private cash = el("div", "pill cash");
   private clock = el("div", "pill clock");
   private rating = el("button", "pill rating");
@@ -62,9 +66,9 @@ export class UI {
     this.root = el("div", "ui");
     mount.appendChild(this.root);
 
-    const left = el("div", "hud-left");
+    const left = this.hudLeft;
     left.append(this.cash, this.clock, this.rating, this.paused);
-    const right = el("div", "hud-right");
+    const right = this.hudRight;
     right.append(this.moveBtn, this.speedBtn);
     this.root.append(left, right, this.context, this.toastBox, this.bubbles, this.placeTop, this.placeRail, this.moveTop, this.moveRail, this.computer, this.modal);
 
@@ -112,6 +116,24 @@ export class UI {
     this.scene = scene;
   }
 
+  /** How much of the screen edge the HUD columns cover (CSS px), so the camera can keep the gym clear of them. */
+  insets(): { left: number; right: number } {
+    const w = window.innerWidth;
+    const gap = 6;
+    const left = this.hudLeft.getBoundingClientRect();
+    let right = 0;
+    for (const n of [this.hudRight, this.placeRail, this.moveRail]) {
+      const r = n.getBoundingClientRect();
+      if (r.width > 0) right = Math.max(right, w - r.left + gap);
+    }
+    // Rails only show in some modes; reserve room for the widest seen so the view doesn't jump when switching.
+    this.lastRightInset = Math.max(this.lastRightInset, right, 96);
+    right = this.lastRightInset;
+    // The left column hides behind modals; keep the last measured width rather than reframing.
+    if (left.width > 0) this.lastLeftInset = left.right + gap;
+    return { left: this.lastLeftInset, right };
+  }
+
   // ------------------------------------------------------------------ per frame
 
   frame() {
@@ -130,7 +152,7 @@ export class UI {
       let anchor: Vec | null = null;
       if (b.actorId !== undefined) {
         const a = [w.player, ...w.customers].find((x) => x.id === b.actorId);
-        if (a) anchor = { x: a.pos.x * 16, y: a.pos.y * 16 - 25 };
+        if (a) anchor = { x: a.pos.x * 16, y: a.pos.y * 16 - 29 };
       } else if (b.at) anchor = b.at;
       if (!anchor || now > b.until) {
         b.node.remove();
@@ -290,7 +312,7 @@ export class UI {
       const short = d.price - w.cash;
       const owned = w.countOf(d.id);
       const chips = [
-        d.revenue ? `<span class="chip">Pays ${money(d.revenue)}/workout</span>` : "",
+        d.satisfaction ? `<span class="chip">Happiness +${d.satisfaction}</span>` : "",
         d.appeal ? `<span class="chip">Appeal +${d.appeal}</span>` : "",
         owned ? `<span class="chip dim">Owned: ${owned}</span>` : "",
       ].join("");
@@ -329,6 +351,9 @@ export class UI {
         <div><span>Workouts today</span><b>${s.workouts}</b></div>
         <div><span>Gave up waiting</span><b>${s.gaveUp}</b></div>
         <div><span>Earned today</span><b>${money(s.revenue)}</b></div>
+        <div><span>Day passes today</span><b>${s.dayPasses}</b></div>
+        <div><span>Active members</span><b>${w.activeMembers()}</b></div>
+        <div><span>Regulars known</span><b>${w.people.size}</b></div>
         <div><span>Avg. happiness</span><b>${avg}</b></div>
         <div><span>Machines</span><b>${machines}</b></div>
         <div><span>Gym appeal</span><b>${appeal.total.toFixed(1)}</b></div>
@@ -336,7 +361,7 @@ export class UI {
         <div><span>Lifetime earnings</span><b>${money(w.lifetime.revenue)}</b></div>
         <div><span>Lifetime visitors</span><b>${w.lifetime.visitors}</b></div>
       </div>
-      <p class="lede">More machines mean shorter waits and more visitors. Decor and the water cooler make people happier, and happy customers raise your rating.</p>`;
+      <p class="lede">Visitors pay ${money(BALANCE.dayPassPrice)} at the front desk. Happy regulars may buy a ${BALANCE.membershipDays}-day membership for ${money(BALANCE.membershipPrice)}. More machines mean shorter waits; decor and water make people happier.</p>`;
   }
 
   private settingsHtml(): string {
@@ -368,7 +393,7 @@ export class UI {
        <p>You just signed the lease on a dusty old warehouse. It has one creaky treadmill, a front desk and a tiny office. It's... a start.</p>
        <ul>
          <li><b>Tap the floor</b> to walk. Tap things to look at or use them.</li>
-         <li>Customers <b>pay after they finish a workout</b>.</li>
+         <li>Customers <b>pay at the front desk</b> when they check in. Happy regulars buy memberships.</li>
          <li>Walk to the <b>office computer</b> to buy equipment.</li>
          <li><b>Move Mode</b> (top right) rearranges your gym.</li>
        </ul>`,
@@ -384,8 +409,11 @@ export class UI {
       `<h2>Day ${s.day} wrap-up</h2>
        <div class="stat-grid tight">
          <div><span>Visitors</span><b>${s.visitors}</b></div>
+         <div><span>Day passes</span><b>${s.dayPasses}</b></div>
+         <div><span>New members</span><b>${s.newMembers}</b></div>
          <div><span>Workouts</span><b>${s.workouts}</b></div>
          <div><span>Gave up</span><b>${s.gaveUp}</b></div>
+         <div><span>Member visits</span><b>${s.memberVisits}</b></div>
          <div><span>Earned</span><b>${money(s.revenue)}</b></div>
          <div><span>Rent</span><b>−${money(s.rent)}</b></div>
          <div><span>Net</span><b class="${s.net >= 0 ? "ok" : "bad"}">${s.net >= 0 ? "" : "−"}${money(Math.abs(s.net))}</b></div>

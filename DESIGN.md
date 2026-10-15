@@ -39,6 +39,16 @@ You've rented a cheap, run-down warehouse and you're trying to turn it into a re
 - **Camera:** follows the player smoothly. Drag to pan while in Move/Placement mode. Pinch/scroll zoom, clamped between 2 or 3 sensible levels.
 - **Mood early on:** dusty concrete, cracks, stains, cobwebs in the corners, a flickering light, a boarded window, mismatched cheap furniture. The goal is *"scrappy little business I'm excited to fix up,"* not *"depressing abandoned building."*
 - **Humor:** slightly exaggerated proportions, funny customer comments, and a retro computer OS ("GymOS 95").
+- **Characters:** 16×32 px, Stardew proportions, hand-drawn in `src/art/people.ts`.
+  - **Built from parts:** each body is assembled from parts (head, torso, arms, legs, hair) drawn with colour *slots*, so one set of drawings covers every customer's skin, hair and outfit.
+  - **Animations:** idle (breathing), blink, a 6-frame walk, a 6-frame run, 4-frame pedalling, typing, check-in and drinking. They come in 4 directions where needed.
+- **Animation rules:**
+  - Walk frames advance with distance travelled, so feet never slide.
+  - Everyone has their own running and pedalling cadence.
+  - Treadmill belts and bike pedals are synced to the person on them.
+  - Customers hop onto machines instead of snapping into place.
+  - Idle people breathe and blink, and waiting customers glance around.
+- **Sprite sheets:** `npm run sprites` exports every character sheet and an equipment-with-rider composite to `docs/sprites/` as PNGs, for review or for an artist to repaint.
 
 ---
 
@@ -176,12 +186,12 @@ interface EquipmentDef {
 
 **v0.1 loop:** this must be visible and satisfying.
 
-1. The customer enters through the entrance and walks past the check-in desk.
+1. The customer enters and **checks in at the front desk**. They pay a day pass, swipe a membership card, or sign up for a membership; the cash pops up at the desk.
 2. They pick a goal (cardio for now) and look for an **Available** machine of that type.
 3. They **reserve** it, so no one else takes it.
 4. They pathfind to its use slot, line up, face the right way and switch to the use animation (jogging in place on the belt).
 5. They stay for the workout duration.
-6. When they finish, the machine is released and **cash pops up** (`+$5`).
+6. When they finish, the machine is released.
 7. They do another activity or leave through the entrance.
 
 If nothing is free, they wait at a waiting spot with a patience timer. If it runs out, they leave annoyed, and that hurts the rating.
@@ -215,9 +225,14 @@ If nothing is free, they wait at a waiting spot with a patience timer. If it run
 
 | Source | When |
 |---|---|
-| Per-workout / day-pass payment | From v0.1 (paid after a completed workout) |
-| Monthly memberships | Recurring; also drive the hybrid offline payout |
+| Day pass ($5), paid at the front desk on arrival | From v0.1 |
+| Weekly membership ($25 for 7 days), bought at the desk by happy regulars | From v0.1. Longer and recurring plans later; they will also drive the hybrid offline payout |
 | Premium memberships, classes, personal training, drinks, merch | Later |
+
+**Regulars:** the town remembers everyone who visits.
+- **Who walks in:** each new visitor is often a returning regular, picked more often if they enjoyed past visits, and three times as often if they're a member.
+- **Signing up:** a regular with at least 2 visits and an average happiness of 3 or more has a 45% chance to buy a membership at check-in.
+- **Members:** they swipe in for free until the membership runs out.
 
 ### Costs
 
@@ -346,7 +361,7 @@ Keeping the rules (`sim/`) separate from the rendering (`scenes/`) makes the gam
 Notes from building it:
 - **Fonts:** Jersey 10 for UI and numbers, VT323 for reading text. Pixelify Sans was dropped because its digits were ambiguous.
 - **Pausing:** the gym clock pauses while the computer, a placement or Move Mode is open.
-- **Check-in desk:** decorative for now. Customers stop there briefly before working out.
+- **Check-in desk:** customers pay there (day pass or membership). Staffing it is a later mechanic.
 - **Bike:** the Stationary Bike (unlocks at 2★) is already in, alongside the treadmill.
 - **Tunable numbers:** all balance numbers are in `src/data/balance.ts`.
 

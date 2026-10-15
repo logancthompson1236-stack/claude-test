@@ -262,12 +262,17 @@ function drawCobweb(p: Painter, px: number, py: number, corner: "tl" | "tr") {
   p.px(sx + 6 * dir, sy + 6, "#2a221c");
 }
 
-/** Dim, uneven warehouse lighting. Multiplied over the world; "fix the lights" will brighten it later. */
-export function drawLighting(): Painter {
-  const p = new Painter(W * TILE, H * TILE + WALL_TOP + OUTSIDE);
-  const ctx = p.ctx;
+/**
+ * Dim, uneven warehouse lighting, multiplied over the world. Smooth gradients, so this one is a plain
+ * canvas rather than pixel art. "Fix the lights" will brighten it later.
+ */
+export function drawLighting(): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = W * TILE;
+  c.height = H * TILE + WALL_TOP + OUTSIDE;
+  const ctx = c.getContext("2d")!;
   ctx.fillStyle = "rgb(150,135,120)";
-  ctx.fillRect(0, 0, p.w, p.h);
+  ctx.fillRect(0, 0, c.width, c.height);
   const lamps = [
     { x: 4 * TILE, y: 3 * TILE, r: 70, c: "rgb(255,236,200)" },
     { x: 12 * TILE, y: 8 * TILE, r: 110, c: "rgb(255,244,220)" },
@@ -279,9 +284,9 @@ export function drawLighting(): Painter {
     g.addColorStop(0, l.c);
     g.addColorStop(1, "rgba(255,240,215,0)");
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, p.w, p.h);
+    ctx.fillRect(0, 0, c.width, c.height);
   }
-  return p;
+  return c;
 }
 
 export const FLICKER_LAMP = { x: 21 * TILE, y: 8 * TILE, r: 100 };

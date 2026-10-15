@@ -47,6 +47,22 @@ export interface DayStats {
   revenue: number;
   satisfactionSum: number;
   departures: number;
+  dayPasses: number;
+  newMembers: number;
+  memberVisits: number;
+}
+
+/** Someone from town who has visited the gym. Regulars come back; happy ones may buy memberships. */
+export interface Person {
+  pid: number;
+  name: string;
+  look: string;
+  visits: number;
+  /** Running average of how much they enjoyed their visits (0-5). */
+  happiness: number;
+  /** Last day (inclusive) their membership covers; 0 = not a member. */
+  memberUntil: number;
+  lastDay: number;
 }
 
 export interface DaySummary extends DayStats {
@@ -76,6 +92,7 @@ export interface SaveData {
   lifetime: { revenue: number; visitors: number; workouts: number };
   hints: string[];
   speed: number;
+  people?: Person[];
   /** Real time of the save, for the future "while you were away" payout. */
   savedAt: number;
 }
@@ -98,6 +115,7 @@ export class World {
   stats: DayStats = emptyStats();
   lifetime = { revenue: 0, visitors: 0, workouts: 0 };
   hintsSeen = new Set<string>();
+  people = new Map<number, Person>();
 
   speed = 1;
   paused = false;
@@ -105,6 +123,8 @@ export class World {
   readonly rng: Rng;
 
   private nextId = 1;
+  /** People get their own ids so saved regulars never clash with new ones. */
+  private nextPid = 1;
   private listeners: ((e: WorldEvent) => void)[] = [];
   private lastHour = -1;
   /** Arrivals build up steadily and each one lands after a jittered amount, so days don't swing wildly. */
@@ -148,6 +168,10 @@ export class World {
       this.ratingAtDayStart = save.rating;
       this.lifetime = { ...save.lifetime };
       this.hintsSeen = new Set(save.hints);
+      for (const p of save.people ?? []) {
+        this.people.set(p.pid, { ...p });
+        this.nextPid = Math.max(this.nextPid, p.pid + 1);
+      }
       this.speed = save.speed || 1;
       for (const o of save.objects) {
         try {
@@ -483,7 +507,69 @@ export class World {
     return true;
   }
 
-  recordDeparture(satisfaction: number) {
+  /** The front desk: members swipe in, regulars may sign up, everyone else buys a day pass. */
+  checkIn(person: Person, at: Vec): "member" | "newMember" | "pass" {
+    if (person.memberUntil >= this.day) {
+      this.stats.memberVisits++;
+      return "member";
+    }
+    const regular =
+      person.visits >= BALANCE.membershipMinVisits && person.happiness >= BALANCE.membershipMinHappiness;
+    if (regular && this.rng.chance(BALANCE.membershipChance)) {
+      person.memberUntil = this.day + BALANCE.membershipDays - 1;
+      this.stats.newMembers++;
+      this.earn(BALANCE.membershipPrice, at);
+      this.hint(
+        "firstMember",
+        `${person.name} bought a membership! Members pay ${"$" + BALANCE.membershipPrice} up front for a week of visits.`,
+      );
+      return "newMember";
+    }
+    this.stats.dayPasses++;
+    this.earn(BALANCE.dayPassPrice, at);
+    this.hint("firstPay", "Ka-ching! Customers pay at the front desk when they check in.");
+    return "pass";
+  }
+
+  activeMembers(): number {
+    let n = 0;
+    for (const p of this.people.values()) if (p.memberUntil >= this.day) n++;
+    return n;
+  }
+
+  /** Who walks in next: often a regular (happy ones and members more so), otherwise someone new. */
+  pickVisitor(newPerson: () => Omit<Person, "pid">): Person {
+    const inside = new Set(this.customers.map((c) => c.pid));
+    const candidates = [...this.people.values()].filter((p) => !inside.has(p.pid) && p.lastDay !== this.day);
+    const returning = Math.min(BALANCE.maxReturningChance, this.people.size / 40);
+    if (candidates.length && this.rng.chance(returning)) {
+      const weight = (p: Person) => Math.max(0.05, p.happiness / 5) ** 2 * (p.memberUntil >= this.day ? 3 : 1);
+      const total = candidates.reduce((a, p) => a + weight(p), 0);
+      let r = this.rng.next() * total;
+      for (const p of candidates) {
+        r -= weight(p);
+        if (r <= 0) return p;
+      }
+      return candidates[candidates.length - 1];
+    }
+    const p: Person = { pid: this.nextPid++, ...newPerson() };
+    this.people.set(p.pid, p);
+    if (this.people.size > BALANCE.maxRegulars) {
+      // Forget the least happy non-member.
+      const drop = [...this.people.values()]
+        .filter((x) => x.memberUntil < this.day && x !== p)
+        .sort((a, b) => a.happiness - b.happiness)[0];
+      if (drop) this.people.delete(drop.pid);
+    }
+    return p;
+  }
+
+  recordDeparture(satisfaction: number, person?: Person) {
+    if (person) {
+      person.visits++;
+      person.lastDay = this.day;
+      person.happiness = person.visits === 1 ? satisfaction : person.happiness * 0.6 + satisfaction * 0.4;
+    }
     this.stats.departures++;
     this.stats.satisfactionSum += satisfaction;
     this.rating += (satisfaction - this.rating) * BALANCE.ratingWeight;
@@ -535,10 +621,20 @@ export class World {
     if (this.minute >= BALANCE.closeMinute && this.customers.length === 0) this.endDay();
   }
 
+  /** Hold a pose (drinking, typing) for a while; walking cancels it. */
+  private playerPoseTimer = 0;
+
+  setPlayerPose(pose: Pose, seconds: number) {
+    this.player.pose = pose;
+    this.playerPoseTimer = seconds;
+  }
+
   private updatePlayer(dt: number) {
     const wasMoving = this.player.path.length > 0;
     this.stepActor(this.player, dt);
-    this.player.pose = "idle";
+    if (this.player.moving) this.playerPoseTimer = 0;
+    if (this.playerPoseTimer > 0) this.playerPoseTimer -= dt;
+    else this.player.pose = "idle";
     if (wasMoving && this.player.path.length === 0 && this.playerTarget) {
       const o = this.objects.get(this.playerTarget.objectId);
       this.playerTarget = null;
@@ -593,6 +689,7 @@ export class World {
       objects: [...this.objects.values()].map((o) => ({ def: o.defId, x: o.x, y: o.y, rot: o.rot })),
       lifetime: { ...this.lifetime },
       hints: [...this.hintsSeen],
+      people: [...this.people.values()],
       speed: this.speed,
       savedAt: Date.now(),
     };
@@ -600,7 +697,17 @@ export class World {
 }
 
 function emptyStats(): DayStats {
-  return { visitors: 0, workouts: 0, gaveUp: 0, revenue: 0, satisfactionSum: 0, departures: 0 };
+  return {
+    visitors: 0,
+    workouts: 0,
+    gaveUp: 0,
+    revenue: 0,
+    satisfactionSum: 0,
+    departures: 0,
+    dayPasses: 0,
+    newMembers: 0,
+    memberVisits: 0,
+  };
 }
 
 export function clockLabel(minute: number): string {

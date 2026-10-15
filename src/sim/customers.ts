@@ -3,7 +3,7 @@ import { getDef } from "../data/equipment";
 import { ENTRANCE } from "../data/layout";
 import { worldInteractSpot, worldSlot } from "./geometry";
 import { dirFromDelta, key, type Vec } from "./types";
-import type { Actor, PlacedObject, World } from "./world";
+import type { Actor, Person, PlacedObject, World } from "./world";
 
 export type CustomerState =
   | "enter"
@@ -21,6 +21,9 @@ export type CustomerState =
 
 export interface Customer extends Actor {
   kind: "customer";
+  /** The townsperson this visit belongs to. */
+  pid: number;
+  person: Person;
   name: string;
   state: CustomerState;
   /** In-game minutes left in the current timed state. */
@@ -38,7 +41,7 @@ export interface Customer extends Actor {
   thought: string;
 }
 
-export const CUSTOMER_LOOKS = 12;
+export const CUSTOMER_LOOKS = 16;
 
 const NAMES = [
   "Dana", "Marcus", "Priya", "Tom", "Keisha", "Luis", "Mei", "Ollie", "Rosa", "Jamal", "Hannah", "Theo",
@@ -48,6 +51,9 @@ const NAMES = [
 
 const LINES = {
   arrive: ["So this is a gym?", "Smells like... warehouse.", "Cozy. In a weird way.", "Is this place new?", "Cardio time!"],
+  regular: ["Back again!", "Same time as usual.", "Missed this place.", "Hey boss!"],
+  member: ["Member!", "*beep*", "Card works!"],
+  newMember: ["Sign me up for a week!", "I'll take a membership!", "Worth it. Membership please!"],
   wait: ["Treadmill's taken...", "I'll wait. I guess.", "Only one machine?!", "Hurry up, buddy..."],
   giveUp: ["Forget it.", "I'm not waiting all day!", "I'll try somewhere else.", "Ugh. Next time."],
   finishTreadmill: ["Phew!", "That treadmill squeaks.", "Not bad!", "Feeling great!"],
@@ -58,11 +64,21 @@ const LINES = {
 
 export function spawnCustomer(w: World): Customer {
   const door = w.rng.pick(ENTRANCE);
+  const person = w.pickVisitor(() => ({
+    name: w.rng.pick(NAMES),
+    look: `c${w.rng.int(0, CUSTOMER_LOOKS - 1)}`,
+    visits: 0,
+    happiness: 0,
+    memberUntil: 0,
+    lastDay: 0,
+  }));
   const c: Customer = {
     id: w.newId(),
     kind: "customer",
-    look: `c${w.rng.int(0, CUSTOMER_LOOKS - 1)}`,
-    name: w.rng.pick(NAMES),
+    pid: person.pid,
+    person,
+    look: person.look,
+    name: person.name,
     pos: { x: door.x + 0.5, y: door.y + 1.4 },
     facing: "up",
     path: [],
@@ -83,7 +99,7 @@ export function spawnCustomer(w: World): Customer {
     machineSatisfaction: 0,
     doorX: door.x,
     waitSpot: null,
-    thought: "Here for a workout.",
+    thought: person.visits > 0 ? "Back for another workout." : "Here for a workout.",
   };
   w.tweenActor(c, { x: door.x + 0.5, y: door.y + 0.5 }, 0.7, "up");
   w.customers.push(c);
@@ -106,14 +122,20 @@ export function updateCustomer(w: World, c: Customer, dt: number, dtMin: number)
       if (!travelling) {
         c.facing = "up";
         c.state = "checkin";
+        c.pose = "checkin";
         c.timer = 3;
         c.thought = "Checking in.";
+        // Pay (or swipe a membership card) at the counter.
+        const paid = w.checkIn(c.person, { x: c.pos.x, y: c.pos.y - 1.8 });
+        if (paid === "newMember") say(w, c, LINES.newMember);
+        else if (paid === "member") say(w, c, LINES.member, 0.4);
+        else say(w, c, c.person.visits > 0 ? LINES.regular : LINES.arrive, 0.3);
       }
       break;
     case "checkin":
       c.timer -= dtMin;
       if (c.timer <= 0) {
-        say(w, c, LINES.arrive, 0.3);
+        c.pose = "idle";
         c.state = "choose";
       }
       break;
@@ -241,10 +263,6 @@ function finishUse(w: World, c: Customer) {
     c.machineSatisfaction = def.satisfaction;
     w.stats.workouts++;
     w.lifetime.workouts++;
-    if (def.revenue > 0) {
-      w.earn(def.revenue, { x: c.pos.x, y: c.pos.y - 1.2 });
-      w.hint("firstPay", "Ka-ching! Customers pay after they finish a workout.");
-    }
     const lines = def.id.startsWith("bike") ? LINES.finishBike : [...LINES.finishTreadmill];
     if (w.objectsWith("cardio").length <= 2) lines.push(...LINES.fewMachines);
     say(w, c, lines, 0.35);
@@ -350,6 +368,6 @@ function depart(w: World, c: Customer) {
     const cooler = c.drank ? getDef("water_cooler").satisfaction : 0;
     s = BALANCE.baseVisitSatisfaction + c.machineSatisfaction + decor + cooler - waitPenalty;
   }
-  w.recordDeparture(Math.max(0, Math.min(5, s)));
+  w.recordDeparture(Math.max(0, Math.min(5, s)), c.person);
   w.customers = w.customers.filter((x) => x !== c);
 }
